@@ -48,28 +48,11 @@ if (typeof since === 'undefined') {
   });
 }
 
-function beginFollowing() {
-  var settings = {
-    analysis: {
-      filter: {
-        worddelimiter: {
-          type: "word_delimiter",
-          preserve_original: true
-        }
-      },
-      analyzer: {
-        "letter_analyzer": {
-          tokenizer: "letter",
-          filter: ["worddelimiter"]
-        }
-      }
-    }
-  };
-
+function setMapping(settingObj, cb){
   request.put({
     url: argv.es,
-    json: settings
-  }, function(e) {
+    json: settingsObj
+    }, function(e) {
     if (e) return console.error('ERROR: could not put settings into elasticsearch ', e);
 
     request.get({
@@ -103,10 +86,13 @@ function beginFollowing() {
       request.put({
         url : argv.es + '/package/_mapping',
         json : o
-      }, function() {})
-
+      });
     });
+    cb();  
+  });
+} 
 
+function couchFollow (){ 
     console.log('BEGIN FOLLOWING @', since);
 
     var last = since,
@@ -116,7 +102,7 @@ function beginFollowing() {
       db: argv.couch,
       since: since,
       include_docs: true
-    },  function(err, change) {
+      },function(err, change) {
       var _this = this;
 
       if (err) {
@@ -143,7 +129,119 @@ function beginFollowing() {
           _this.resume();
         }
       }
+    });
+}
 
+function beginFollowing() {
+  var settings = {
+    analysis: {
+      filter: {
+        worddelimiter: {
+          type: "word_delimiter",
+          preserve_original: true
+        }
+      },
+      analyzer: {
+        "letter_analyzer": {
+          tokenizer: "letter",
+          filter: ["worddelimiter"]
+        }
+      }
+    }
+  };
+  setMapping(settings, couchFollow); 
+}
+
+function postToElasticSearch(change, callback){
+  var p = normalize(change.doc);
+  
+  if (!p || !p.name) {
+    console.log('SKIP: ' + change.doc._id);
+    return callback();
+  }
+  
+  p.stars = p && p.users ? p.users.length : 0;
+  
+  request({
+    uri: 'https://api.npmjs.org/downloads/point/last-day/' + p.name,
+    json: true,
+    method: 'GET'
+  }, function (e, r, bd) {
+  
+    if (e || bd.error) {
+      console.error(e ? e.message : bd.error, p);
+    } else {
+      p.dlDay = bd.downloads;
+    }
+  
+    // get download counts for the last week
+    request({
+      uri: 'https://api.npmjs.org/downloads/point/last-week/' + p.name,
+      json: true,
+      method: 'GET'
+    }, function (e, r, bw) {
+      if (e || bw.error) {
+        console.error(e ? e.message : bw.error, p);
+      } else {
+        p.dlWeek = bw.downloads;
+      }
+  
+      // get download counts for the last month
+      request({
+        uri: 'https://api.npmjs.org/downloads/point/last-month/' + p.name,
+        json: true,
+        method: 'GET'
+      }, function (e, r, bm) {
+        if (e || bm.error) {
+          console.error(e ? e.message : bm.error, p);
+        } else {
+          p.dlMonth = bm.downloads;
+        }
+  
+        // use that information to get a sense of trending popularity
+        p.dlScore = p.dlWeek / (p.dlMonth / 4);
+  
+        request.get({
+          url: argv.es + '/package/' + p.name,
+          json: true
+        }, function(e,b, obj) {
+  
+          // follow gives us an update of the same document 2 times
+          // 1) for the actual package.json update
+          // 2) for the tarball
+          // skip a re-index for #2
+          if (!e && obj && obj._source && obj._source.version === p.version) {
+            console.log('SKIP VERSION:', change.doc._id, p.version, 'queue backlog = ', queue.length());
+            callback();
+          } else {
+            obj = obj || {};
+            //get numberof dev 
+            if (p.dependencies){ 
+              p.numberOfDependencies = p.dependencies.length;
+            }
+            if (p.devDependencies){ 
+              p.numberOfDevDependencies = p.devDependencies.length;
+            }
+            if (p.time) {
+              delete p.time;
+            }
+  
+            request.put({
+              url: argv.es + '/package/' + p.name,
+              json: extend(obj._source || {}, p)
+            }, function(e, r, b) {
+              if (e) {
+                console.error(e.message, p);
+              } else if (b.error) {
+                console.error(b.error, p);
+              } else {
+                console.log('ADD', p.name, 'status = ', r.statusCode, 'queue backlog = ', queue.length());
+              }
+              callback();
+            });
+          }
+        });
+      });
     });
   });
 }
@@ -182,103 +280,12 @@ function _createThrottlingQueue(last, concurrency) {
       });
 
     // Add the document to elasticsearch
-    } else {
-
-      var p = normalize(change.doc);
-
-      if (!p || !p.name) {
-        console.log('SKIP: ' + change.doc._id);
-        return callback();
-      }
-
-      p.stars = p && p.users ? p.users.length : 0;
-
-      request({
-        uri: 'https://api.npmjs.org/downloads/point/last-day/' + p.name,
-        json: true,
-        method: 'GET'
-      }, function (e, r, bd) {
-
-        if (e || bd.error) {
-          console.error(e ? e.message : bd.error, p);
-        } else {
-          p.dlDay = bd.downloads;
-        }
-
-        // get download counts for the last week
-        request({
-          uri: 'https://api.npmjs.org/downloads/point/last-week/' + p.name,
-          json: true,
-          method: 'GET'
-        }, function (e, r, bw) {
-          if (e || bw.error) {
-            console.error(e ? e.message : bw.error, p);
-          } else {
-            p.dlWeek = bw.downloads;
-          }
-
-          // get download counts for the last month
-          request({
-            uri: 'https://api.npmjs.org/downloads/point/last-month/' + p.name,
-            json: true,
-            method: 'GET'
-          }, function (e, r, bm) {
-            if (e || bm.error) {
-              console.error(e ? e.message : bm.error, p);
-            } else {
-              p.dlMonth = bm.downloads;
-            }
-
-            // use that information to get a sense of trending popularity
-            p.dlScore = p.dlWeek / (p.dlMonth / 4);
-
-            request.get({
-              url: argv.es + '/package/' + p.name,
-              json: true
-            }, function(e,b, obj) {
-
-              // follow gives us an update of the same document 2 times
-              // 1) for the actual package.json update
-              // 2) for the tarball
-              // skip a re-index for #2
-              if (!e && obj && obj._source && obj._source.version === p.version) {
-                console.log('SKIP VERSION:', change.doc._id, p.version, 'queue backlog = ', queue.length());
-                callback();
-              } else {
-                obj = obj || {};
-                //get numberof dev 
-                if (p.dependencies){ 
-                  p.numberOfDependencies = p.dependencies.length;
-                }
-                if (p.devDependencies){ 
-                  p.numberOfDevDependencies = p.devDependencies.length;
-                }
-                if (p.time) {
-                  delete p.time;
-                }
-
-                request.put({
-                  url: argv.es + '/package/' + p.name,
-                  json: extend(obj._source || {}, p)
-                }, function(e, r, b) {
-                  if (e) {
-                    console.error(e.message, p);
-                  } else if (b.error) {
-                    console.error(b.error, p);
-                  } else {
-                    console.log('ADD', p.name, 'status = ', r.statusCode, 'queue backlog = ', queue.length());
-                  }
-                  callback();
-                });
-              }
-            });
-          });
-        });
-
-      });
-    }
+    } else{
+      postToElasticSeach(change, callback);  
+    }  
 
   }, concurrency);
 
   return queue;
 }
+
