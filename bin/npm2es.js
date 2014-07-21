@@ -52,7 +52,7 @@ function start (){
 
 start()
 
-function setMapping(settingObj, cb){
+function setMapping(settingsObj, cb){
   request.put({
     url: argv.es,
     json: settingsObj
@@ -285,7 +285,7 @@ function _createThrottlingQueue(last, concurrency) {
 
     // Add the document to elasticsearch
     } else{
-      postToElasticSeach(change, callback, queue);  
+      postToElasticSearch(change, callback, queue);  
     }  
 
   }, concurrency);
