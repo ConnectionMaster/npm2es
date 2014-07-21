@@ -16,37 +16,41 @@ var follow = require('follow'),
     seqUrl = argv.es + '/config/sequence';
     async = require('async');
 
-if (typeof since === 'undefined') {
-  request.get({
-    url : seqUrl,
-    json: true
-  }, function(e, r, o) {
-    if (!r) {
-      return console.error('ERROR:', 'could not connect to elasticsearch (' + argv.es + ')');
-    }
-
-    if (!e && o && o._source && o._source.value) {
-      since = o._source.value;
-    } else {
-      since = 0;
-    }
-    beginFollowing();
-  });
-
-} else {
-  request.put({
-    url : seqUrl,
-    json : {
-      value: since
-    }
-  }, function(e, r, o) {
-
-    if (e) {
-      throw e;
-    }
-    beginFollowing();
-  });
+function start (){ 
+  if (typeof since === 'undefined') {
+    request.get({
+      url : seqUrl,
+      json: true
+    }, function(e, r, o) {
+      if (!r) {
+        return console.error('ERROR:', 'could not connect to elasticsearch (' + argv.es + ')');
+      }
+  
+      if (!e && o && o._source && o._source.value) {
+        since = o._source.value;
+      } else {
+        since = 0;
+      }
+      beginFollowing();
+    });
+  
+  } else {
+    request.put({
+      url : seqUrl,
+      json : {
+        value: since
+      }
+    }, function(e, r, o) {
+  
+      if (e) {
+        throw e;
+      }
+      beginFollowing();
+    });
+  }
 }
+
+start()
 
 function setMapping(settingObj, cb){
   request.put({
@@ -152,7 +156,7 @@ function beginFollowing() {
   setMapping(settings, couchFollow); 
 }
 
-function postToElasticSearch(change, callback){
+function postToElasticSearch(change, callback, queue){
   var p = normalize(change.doc);
   
   if (!p || !p.name) {
@@ -281,7 +285,7 @@ function _createThrottlingQueue(last, concurrency) {
 
     // Add the document to elasticsearch
     } else{
-      postToElasticSeach(change, callback);  
+      postToElasticSeach(change, callback, queue);  
     }  
 
   }, concurrency);
