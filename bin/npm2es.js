@@ -253,7 +253,6 @@ function getMetaInfo(change, callback){
           console.error(e); 
           return
         }else {
-          b = JSON.parse(b); 
           var deps = b.rows.length;
           cb(null, deps);
         } 
