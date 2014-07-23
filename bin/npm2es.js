@@ -159,7 +159,7 @@ function _createThrottlingQueue(last, concurrency) {
         if(!p) {
           callback();
         }else{
-          postToEs(p,queue,callback); 
+          postToES(p,queue, change, callback); 
         }           
       });  
     }  
@@ -203,7 +203,12 @@ function getMetaInfo(change, callback){
         if (e || bd.error) {
           cb(null,{err: e}); 
         }else{
-          cb(null, bd.downloads;);
+          var num;
+          if(bd.downloads)  
+            num = bd.downloads; 
+          else
+            num = 0;
+          cb(null, num);
         }
       })
     },
@@ -241,7 +246,7 @@ function getMetaInfo(change, callback){
 }
 
 
-function postToES(p, queue, callback){  
+function postToES(p, queue, change, callback){  
    request.get({
      url: argv.es + '/package/' + p.name,
      json: true
