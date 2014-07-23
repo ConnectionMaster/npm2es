@@ -16,41 +16,26 @@ var follow = require('follow'),
     seqUrl = argv.es + '/config/sequence';
     async = require('async');
 
-function start (){ 
-  if (typeof since === 'undefined') {
-    request.get({
-      url : seqUrl,
-      json: true
-    }, function(e, r, o) {
-      if (!r) {
-        return console.error('ERROR:', 'could not connect to elasticsearch (' + argv.es + ')');
-      }
-  
-      if (!e && o && o._source && o._source.value) {
-        since = o._source.value;
-      } else {
-        since = 0;
-      }
-      beginFollowing();
-    });
-  
-  } else {
-    request.put({
-      url : seqUrl,
-      json : {
-        value: since
-      }
-    }, function(e, r, o) {
-  
-      if (e) {
-        throw e;
-      }
-      beginFollowing();
-    });
-  }
-}
 
-start()
+function beginFollowing() {
+  var settings = {
+    analysis: {
+      filter: {
+        worddelimiter: {
+          type: "word_delimiter",
+          preserve_original: true
+        }
+      },
+      analyzer: {
+        "letter_analyzer": {
+          tokenizer: "letter",
+          filter: ["worddelimiter"]
+        }
+      }
+    }
+  };
+  setMapping(settings, couchFollow); 
+}
 
 function setMapping(settingsObj, cb){
   request.put({
@@ -136,24 +121,52 @@ function couchFollow (){
     });
 }
 
-function beginFollowing() {
-  var settings = {
-    analysis: {
-      filter: {
-        worddelimiter: {
-          type: "word_delimiter",
-          preserve_original: true
+
+
+// Create a queue that only allows concurrency
+// indexing operations to occur in parallel.
+function _createThrottlingQueue(last, concurrency) {
+  var queue = async.queue(function(change, callback) {
+    if (last + interval < change.seq) {
+      last = change.seq;
+      request.put({
+        url : seqUrl,
+        json : {
+          value: last
         }
-      },
-      analyzer: {
-        "letter_analyzer": {
-          tokenizer: "letter",
-          filter: ["worddelimiter"]
+      }, function(e, r, o) {
+        if (e) {
+          console.error('ERROR', 'could not save latest sequence', e.message);
+          return callback();
         }
-      }
+
+        console.log('SYNC', last);
+      });
     }
-  };
-  setMapping(settings, couchFollow); 
+
+    // Remove the document from elasticsearch
+    if (change.deleted) {
+      request.del(argv.es + '/package/' + change.id, function(err) {
+        if (!err) {
+          console.log('DELETED', change.id);
+        } else {
+          console.error('ERROR', 'could not delete document', err);
+        }
+        callback();
+      });
+    } else{
+      getMetaInfo(change, function(p){ 
+        if(!p) {
+          callback();
+        }else{
+          postToEs(p,queue,callback); 
+        }           
+      });  
+    }  
+
+  }, concurrency);
+
+  return queue;
 }
 
 function getMetaInfo(change, callback){
@@ -227,57 +240,6 @@ function getMetaInfo(change, callback){
     }); 
 }
 
-// Create a queue that only allows concurrency
-// indexing operations to occur in parallel.
-function _createThrottlingQueue(last, concurrency) {
-  var queue = async.queue(function(change, callback) {
-    if (last + interval < change.seq) {
-      last = change.seq;
-      request.put({
-        url : seqUrl,
-        json : {
-          value: last
-        }
-      }, function(e, r, o) {
-        if (e) {
-          console.error('ERROR', 'could not save latest sequence', e.message);
-          return callback();
-        }
-
-        console.log('SYNC', last);
-      });
-    }
-
-    // Remove the document from elasticsearch
-    if (change.deleted) {
-      request.del(argv.es + '/package/' + change.id, function(err) {
-        if (!err) {
-          console.log('DELETED', change.id);
-        } else {
-          console.error('ERROR', 'could not delete document', err);
-        }
-        callback();
-      });
-    } else{
-      getMetaInfo(change, function(p){ 
-        if(!p) {
-          callback();
-        }else{
-          postToEs(p,queue,callback); 
-        }           
-      });  
-    }  
-
-  }, concurrency);
-
-  return queue;
-}
-
-
-
-
-
-
 
 function postToES(p, queue, callback){  
    request.get({
@@ -320,3 +282,40 @@ function postToES(p, queue, callback){
      }
    });
 }
+
+function start (){ 
+  if (typeof since === 'undefined') {
+    request.get({
+      url : seqUrl,
+      json: true
+    }, function(e, r, o) {
+      if (!r) {
+        return console.error('ERROR:', 'could not connect to elasticsearch (' + argv.es + ')');
+      }
+  
+      if (!e && o && o._source && o._source.value) {
+        since = o._source.value;
+      } else {
+        since = 0;
+      }
+      beginFollowing();
+    });
+  
+  } else {
+    request.put({
+      url : seqUrl,
+      json : {
+        value: since
+      }
+    }, function(e, r, o) {
+  
+      if (e) {
+        throw e;
+      }
+      beginFollowing();
+    });
+  }
+}
+
+start();
+
