@@ -219,7 +219,13 @@ function getMetaInfo(change, callback){
           console.error(e ? e.message : bw.error, p);
           cb(null, {err: e});
         } else {
-          cb(null, bw.downloads);
+          var num;
+          if(bw.downloads)  
+            num = bw.downloads; 
+          else
+            num = 0;
+          
+          cb(null, num);
         }
       }) 
     }, 
@@ -228,7 +234,12 @@ function getMetaInfo(change, callback){
         if (e || bm.error) {
           console.error(e ? e.message : bm.error, p);
         } else {
-          cb(null, bm.downloads);
+          var num;
+          if(bm.downloads)  
+            num = bm.downloads; 
+          else
+            num = 0;
+          cb(null, num);
         }
       }) 
     }], function (err, results){
