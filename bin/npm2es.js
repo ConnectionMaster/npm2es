@@ -265,14 +265,14 @@ function getMetaInfo(change, callback){
         p.dlMonth = results[2];
         p.dependantScore = results[3] * .1; 
         p.dlScore = p.dlWeek / (p.dlMonth / 4);
-        if (p.scripts.test && (p.scripts.test.toLowerCase().indexOf('error') === -1 
-        || typeof (p.scripts.test) === 'object')) {
+        if (p.scripts.test && (typeof (p.scripts.test) === 'object' || 
+        p.scripts.test.toLowerCase().indexOf('error') === -1)) {
           p.hasTest = true;
         } 
         callback(p); 
-    }else{ 
-      callback();
-    } 
+      }else{ 
+        callback();
+      } 
     }); 
 }
 
