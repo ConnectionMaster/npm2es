@@ -266,7 +266,7 @@ function getMetaInfo(change, callback){
         p.dlMonth = results[2];
         p.dependantScore = results[3] * .1; 
         p.dlScore = p.dlWeek / (p.dlMonth / 4);
-        if (p.scripts.test && project.scripts.test.toLowerCase().indexOf('error') === -1) {
+        if (p.scripts.test && p.scripts.test.toLowerCase().indexOf('error') === -1) {
           p.hasTest = true;
         } 
         callback(p); 
