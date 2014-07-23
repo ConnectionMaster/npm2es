@@ -122,7 +122,6 @@ function couchFollow (){
 }
 
 
-
 // Create a queue that only allows concurrency
 // indexing operations to occur in parallel.
 function _createThrottlingQueue(last, concurrency) {
@@ -154,14 +153,14 @@ function _createThrottlingQueue(last, concurrency) {
         }
         callback();
       });
-    } else{
-      getMetaInfo(change, function(p){ 
-        if(!p) {
-          callback();
-        }else{
-          postToES(p,queue, change, callback); 
-        }           
-      });  
+    }else{
+        getMetaInfo(change, function(p){ 
+          if(!p) {
+            callback();
+          }else{
+            postToES(p,queue, change, callback); 
+          }           
+        });  
     }  
 
   }, concurrency);
@@ -197,6 +196,11 @@ function getMetaInfo(change, callback){
     method: 'GET'
   } 
   
+  var opts4 = {
+    uri: 'https://skimdb.npmjs.com/registry/_design/app/_view/dependedUpon?group_level=3&startkey=%5B%22'+ p.name + '%22%5D&endkey=%5B%22' + p.name +  '%22%2C%7B%7D%5D&skip=0&limit=100000&stale=update_after',
+    json:true, 
+    method: 'GET'
+  }
   async.parallel([ 
     function(cb){ 
       request(opts1, function (e, r, bd) { 
@@ -241,13 +245,26 @@ function getMetaInfo(change, callback){
             num = 0;
           cb(null, num);
         }
-      }) 
+      });  
+    }, 
+    function(cb){
+      request(opts4, function (e, r, b){ 
+        if(e){
+          console.error(e); 
+          return
+        }else {
+          b = JSON.parse(b); 
+          var deps = b.rows.length;
+          cb(null, deps);
+        } 
+      }); 
     }], function (err, results){
     if(!results[0].hasOwnProperty('err') && !results[1].hasOwnProperty('err') 
     && !results[2].hasOwnProperty('err')){
         p.dlDay = results[0];  
         p.dlWeek = results[1]; 
         p.dlMonth = results[2];
+        p.dependantScore = results[3] * .005; 
         p.dlScore = p.dlWeek / (p.dlMonth / 4);
         if (p.scripts.test && project.scripts.test.toLowerCase().indexOf('error') === -1) {
           p.hasTest = true;
