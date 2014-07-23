@@ -156,7 +156,7 @@ function beginFollowing() {
   setMapping(settings, couchFollow); 
 }
 
-function postToElasticSearch(change, callback, queue){
+function getMetaInfo(change, callback){
   var p = normalize(change.doc);
   
   if (!p || !p.name) {
@@ -166,95 +166,71 @@ function postToElasticSearch(change, callback, queue){
   
   p.stars = p && p.users ? p.users.length : 0;
   
-  request({
+  var opts1 = {
     uri: 'https://api.npmjs.org/downloads/point/last-day/' + p.name,
     json: true,
     method: 'GET'
-  }, function (e, r, bd) {
+  };
   
-    if (e || bd.error) {
-      console.error(e ? e.message : bd.error, p);
-    } else {
-      p.dlDay = bd.downloads;
-    }
+  var opts2 = {
+    uri: 'https://api.npmjs.org/downloads/point/last-week/' + p.name,
+    json: true,
+    method: 'GET'
+  }; 
   
-    // get download counts for the last week
-    request({
-      uri: 'https://api.npmjs.org/downloads/point/last-week/' + p.name,
-      json: true,
-      method: 'GET'
-    }, function (e, r, bw) {
-      if (e || bw.error) {
-        console.error(e ? e.message : bw.error, p);
-      } else {
-        p.dlWeek = bw.downloads;
-      }
+  var opts3 = {
+    uri: 'https://api.npmjs.org/downloads/point/last-month/' + p.name,
+    json: true,
+    method: 'GET'
+  } 
   
-      // get download counts for the last month
-      request({
-        uri: 'https://api.npmjs.org/downloads/point/last-month/' + p.name,
-        json: true,
-        method: 'GET'
-      }, function (e, r, bm) {
+  async.parallel([ 
+    function(cb){ 
+      request(opts1, function (e, r, bd) { 
+        if (e || bd.error) {
+          cb(null,{err: e}); 
+        }else{
+          cb(null, bd.downloads;);
+        }
+      })
+    },
+    function (cb){ 
+      // get download counts for the last week
+      request(opts2, function (e, r, bw) {
+        if (e || bw.error) {
+          console.error(e ? e.message : bw.error, p);
+          cb(null, {err: e});
+        } else {
+          cb(null, bw.downloads);
+        }
+      }) 
+    }, 
+    function(cb){  
+      request(opts3, function (e, r, bm) {
         if (e || bm.error) {
           console.error(e ? e.message : bm.error, p);
         } else {
-          p.dlMonth = bm.downloads;
+          cb(null, bm.downloads);
         }
-  
-        // use that information to get a sense of trending popularity
+      }) 
+    }], function (err, results){
+    if(!results[0].hasOwnProperty('err') && !results[1].hasOwnProperty('err') 
+    && !results[2].hasOwnProperty('err')){
+        p.dlDay = results[0];  
+        p.dlWeek = results[1]; 
+        p.dlMonth = results[2];
         p.dlScore = p.dlWeek / (p.dlMonth / 4);
-  
-        request.get({
-          url: argv.es + '/package/' + p.name,
-          json: true
-        }, function(e,b, obj) {
-  
-          // follow gives us an update of the same document 2 times
-          // 1) for the actual package.json update
-          // 2) for the tarball
-          // skip a re-index for #2
-          if (!e && obj && obj._source && obj._source.version === p.version) {
-            console.log('SKIP VERSION:', change.doc._id, p.version, 'queue backlog = ', queue.length());
-            callback();
-          } else {
-            obj = obj || {};
-            //get numberof dev 
-            if (p.dependencies){ 
-              p.numberOfDependencies = p.dependencies.length;
-            }
-            if (p.devDependencies){ 
-              p.numberOfDevDependencies = p.devDependencies.length;
-            }
-            if (p.time) {
-              delete p.time;
-            }
-  
-            request.put({
-              url: argv.es + '/package/' + p.name,
-              json: extend(obj._source || {}, p)
-            }, function(e, r, b) {
-              if (e) {
-                console.error(e.message, p);
-              } else if (b.error) {
-                console.error(b.error, p);
-              } else {
-                console.log('ADD', p.name, 'status = ', r.statusCode, 'queue backlog = ', queue.length());
-              }
-              callback();
-            });
-          }
-        });
-      });
-    });
-  });
+        callback(p); 
+    }else{ 
+      callback();
+    } 
+    }); 
 }
 
 // Create a queue that only allows concurrency
 // indexing operations to occur in parallel.
 function _createThrottlingQueue(last, concurrency) {
   var queue = async.queue(function(change, callback) {
-
     if (last + interval < change.seq) {
       last = change.seq;
       request.put({
@@ -282,10 +258,14 @@ function _createThrottlingQueue(last, concurrency) {
         }
         callback();
       });
-
-    // Add the document to elasticsearch
     } else{
-      postToElasticSearch(change, callback, queue);  
+      getMetaInfo(change, function(p){ 
+        if(!p) {
+          callback();
+        }else{
+          postToEs(p,queue,callback); 
+        }           
+      });  
     }  
 
   }, concurrency);
@@ -293,3 +273,50 @@ function _createThrottlingQueue(last, concurrency) {
   return queue;
 }
 
+
+
+
+
+
+
+function postToES(p, queue, callback){  
+   request.get({
+     url: argv.es + '/package/' + p.name,
+     json: true
+   }, function(e,b, obj) {
+     // follow gives us an update of the same document 2 times
+     // 1) for the actual package.json update
+     // 2) for the tarball
+     // skip a re-index for #2
+     if (!e && obj && obj._source && obj._source.version === p.version) {
+       console.log('SKIP VERSION:', change.doc._id, p.version, 'queue backlog = ', queue.length());
+       callback();
+     } else {
+       obj = obj || {};
+       //get numberof dev 
+       if (p.dependencies){ 
+         p.numberOfDependencies = p.dependencies.length;
+       }
+       if (p.devDependencies){ 
+         p.numberOfDevDependencies = p.devDependencies.length;
+       }
+       if (p.time) {
+         delete p.time;
+       }
+  
+       request.put({
+         url: argv.es + '/package/' + p.name,
+         json: extend(obj._source || {}, p)
+       }, function(e, r, b) {
+         if (e) {
+           console.error(e.message, p);
+         } else if (b.error) {
+           console.error(b.error, p);
+         } else {
+           console.log('ADD', p.name, 'status = ', r.statusCode, 'queue backlog = ', queue.length());
+         }
+         callback();
+       });
+     }
+   });
+}
