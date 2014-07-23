@@ -249,8 +249,9 @@ function getMetaInfo(change, callback){
         p.dlWeek = results[1]; 
         p.dlMonth = results[2];
         p.dlScore = p.dlWeek / (p.dlMonth / 4);
-        if (p.scripts.test && p.scripts.test.toLowerCase().indexOf('error') === -1) 
-          console.log(p + " haz test");
+        if (p.scripts.test && project.scripts.test.toLowerCase().indexOf('error') === -1) {
+          p.hasTest = true;
+        } 
         callback(p); 
     }else{ 
       callback();
