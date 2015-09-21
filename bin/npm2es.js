@@ -191,10 +191,12 @@ function _createThrottlingQueue(last, concurrency) {
         return callback();
       }
 
+      p.escapedName = p.name.replace(/\//g, '%2f');
+
       p.stars = p && p.users ? p.users.length : 0;
 
       request({
-        uri: 'https://api.npmjs.org/downloads/point/last-day/' + p.name,
+        uri: 'https://api.npmjs.org/downloads/point/last-day/' + p.escapedName,
         json: true,
         method: 'GET'
       }, function (e, r, bd) {
@@ -207,7 +209,7 @@ function _createThrottlingQueue(last, concurrency) {
 
         // get download counts for the last week
         request({
-          uri: 'https://api.npmjs.org/downloads/point/last-week/' + p.name,
+          uri: 'https://api.npmjs.org/downloads/point/last-week/' + p.escapedName,
           json: true,
           method: 'GET'
         }, function (e, r, bw) {
@@ -219,7 +221,7 @@ function _createThrottlingQueue(last, concurrency) {
 
           // get download counts for the last month
           request({
-            uri: 'https://api.npmjs.org/downloads/point/last-month/' + p.name,
+            uri: 'https://api.npmjs.org/downloads/point/last-month/' + p.escapedName,
             json: true,
             method: 'GET'
           }, function (e, r, bm) {
@@ -233,7 +235,7 @@ function _createThrottlingQueue(last, concurrency) {
             p.dlScore = p.dlWeek / (p.dlMonth / 4);
 
             request.get({
-              url: argv.es + '/package/' + p.name,
+              url: argv.es + '/package/' + p.escapedName,
               json: true
             }, function(e,b, obj) {
 
@@ -258,7 +260,7 @@ function _createThrottlingQueue(last, concurrency) {
                 }
 
                 request.put({
-                  url: argv.es + '/package/' + p.name,
+                  url: argv.es + '/package/' + p.escapedName,
                   json: extend(obj._source || {}, p)
                 }, function(e, r, b) {
                   if (e) {
