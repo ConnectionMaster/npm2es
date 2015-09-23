@@ -13,7 +13,8 @@ var follow = require('follow'),
     extend = require('extend'),
     since = argv.since,
     interval = argv.interval || 1000,
-    seqUrl = argv.es + '/config/sequence';
+    seqUrl = argv.es + '/config/sequence',
+    downloadUrl = argv.downloads || 'https://api.npmjs.org/downloads',
     async = require('async');
 
 if (typeof since === 'undefined') {
@@ -196,7 +197,7 @@ function _createThrottlingQueue(last, concurrency) {
       p.stars = p && p.users ? p.users.length : 0;
 
       request({
-        uri: 'https://api.npmjs.org/downloads/point/last-day/' + p.escapedName,
+        uri: downloadUrl + '/point/last-day/' + p.escapedName,
         json: true,
         method: 'GET'
       }, function (e, r, bd) {
@@ -209,7 +210,7 @@ function _createThrottlingQueue(last, concurrency) {
 
         // get download counts for the last week
         request({
-          uri: 'https://api.npmjs.org/downloads/point/last-week/' + p.escapedName,
+          uri: downloadUrl + '/point/last-week/' + p.escapedName,
           json: true,
           method: 'GET'
         }, function (e, r, bw) {
@@ -221,7 +222,7 @@ function _createThrottlingQueue(last, concurrency) {
 
           // get download counts for the last month
           request({
-            uri: 'https://api.npmjs.org/downloads/point/last-month/' + p.escapedName,
+            uri: downloadUrl + '/point/last-month/' + p.escapedName,
             json: true,
             method: 'GET'
           }, function (e, r, bm) {
